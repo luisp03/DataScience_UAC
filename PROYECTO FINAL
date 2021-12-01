@@ -1,0 +1,327 @@
+title: "PARCIAL3_SARMIENTO_POLO"
+author: "KLEYDERMSARMIENTO,LUISPOLO"
+date: "28/11/2021"
+output: pdf_document
+---
+# UNIVERSIDAD AUTONOMA DEL CARIBE 
+## CIENCIA DE DATOS EN EL SECTOR SALUD 
+## PARCIAL FINAL 
+### INTEGRANTES: 
+### KLEYDERM ANDRES SARMIENTO (252010055)
+### LUIS JOSE POLO  (251210277)
+### INSTRUCTOR :
+### JAIR VILLANUEVA 
+
+# RECONOCIMIENTO.
+
+##  LIBRERIAS NECESARIAS :
+```{r results='hide', message=FALSE, warning=FALSE}
+library(caret)
+library(dplyr)
+library(ggplot2)
+library(tidyverse)
+library(readr)
+library(skimr)
+library(stats)
+library(corrplot)
+library(standardize)
+library(PerformanceAnalytics)
+```
+
+##  DATA SET UTILIZADO. *KLEYDERM
+
+Estoy usando el conjunto de datos cardíacos "SPECTF" de los datos disponibles en el sitio web de 'UCI Machine Learning Repository'  de 2004.
+
+Link de descarga: https://archive.ics.uci.edu/ml/datasets/SPECTF+Heart
+
+El conjunto de datos describe el diagnóstico de imágenes cardíacas de tomografía computarizada por emisión de protón único (SPECT). Cada uno de los pacientes se clasifica en dos categorías: normales y anormales. La base de datos de 267 conjuntos de imágenes SPECT (pacientes) se procesó para extraer características que resumen las imágenes SPECT originales. Como resultado, se crearon 44 patrones de características continuas para cada paciente.
+
+## CARGAMOS EL DATA SET DE ENTRENAMIENTO. *LUIS
+```{r, results='hide', message=FALSE, warning=FALSE}
+library(readr)
+SPECTF_train <- read_csv("SPECTF_train.CSV")
+```
+
+## CARGAMOS EL DATA SET DE PRUEBA. *KLEYDERM
+```{r, results='hide', message=FALSE, warning=FALSE}
+library(readr)
+SPECTF_test <- read_csv("SPECTF_test.CSV")
+```
+
+## PREGUNTA DE INVESTIGACIÓN. *KLEYDERM 
+
+Se realizaron exámenes cardiacos a pacientes por medio de tomografía computarizada por emisión de protón único (SPECT), este es un estudio de diagnóstico por imágenes de medicina nuclear que 
+utiliza sustancias radioactivas y una cámara especial con la que se crean imágenes tridimensionales 
+de la parte estudiada en el cuerpo del paciente, las cuales después deben ser visualizadas por un médico
+quien indica si el paciente tiene o no una anomalía cardiaca.
+
+A cada imagen tomada, se le agregaron 22 regiones de interés (ROI), los cuales se encargan de buscar 
+un similar con una muestra ya preestablecida(diferente para cada ROI), en este caso la muestra que el programa de visión 
+artificial busca es de un paciente sano, por lo que el resultado que arroja cada ROI es de 0 a 100, 
+donde 0 quiere decir que hay 0% de coincidencia y la región de interés no está sana y el 100 quiere 
+decir que la región está sana y exacta a la muestra.
+
+Este data set muestra los resultados de ROI para cada paciente donde se le tomó una tomografía en reposo y una en estrés, por lo tanto, cada paciente tiene 22 ROIS en reposo y 22 ROIS en estrés.
+
+Nuestra pregunta de investigación es: ¿Se puede realizar una integración entre visión artificial y Machine learning para lograr establecer si un paciente tiene o no una anomalía cardiaca solo con hacer una tomografía en reposo y en estrés, luego pasarla por un procesamiento de Rois y que el programa de Machine Learning estudie estos 44 resultados y de un diagnóstico?
+
+# LIMPIEZA.
+
+## ESTADO DEL DATA SET DE ENTRENAMIENTO. *LUIS
+```{r, message=FALSE, warning=FALSE}
+summary (SPECTF_train)
+```
+
+Dado que en la explicación nos dicen que los valores de los rois se entregan entre 0 y 100, podemos observar mediante la función "summary" que hay variables con valores mayores de 100, por lo tanto, el data set cuenta con Out liers y Missing datas.
+
+## VISUALIZAMOS LOS OUTLIERS * KLEYDERM
+```{r, message=FALSE, warning=FALSE}
+boxplot (SPECTF_train$F4S,SPECTF_train$F4R,SPECTF_train$F10S,SPECTF_train$F12R,SPECTF_train$F14S  ) 
+```
+
+
+## CONVERTIMOS LOS OUT LIERS EN NA. *LUIS 
+```{r, message=FALSE, warning=FALSE}
+SPECTF_train$F4S[SPECTF_train$F4S > 100 ] <- NA
+SPECTF_train$F5R[SPECTF_train$F5R > 100 ] <- NA
+SPECTF_train$F10S[SPECTF_train$F10S > 100 ] <- NA
+SPECTF_train$F12R[SPECTF_train$F12R > 100 ] <- NA
+SPECTF_train$F14S[SPECTF_train$F14S > 100 ] <- NA
+SPECTF_train[SPECTF_train > 100]
+```
+
+## REEMPLAZAMOS LOS NA POR EL PROMEDIO. *KLEYDERM
+```{r,results='hide',message=FALSE, warning=FALSE}
+library(mice)
+imp <- mice(SPECTF_train, m = 5, method = "mean")
+imp$imp$F4S
+imp$imp$F5R
+imp$imp$F6R
+imp$imp$F6S
+imp$imp$F7R
+imp$imp$F9R
+imp$imp$F10S
+imp$imp$F11R
+imp$imp$F11S
+imp$imp$F12R
+imp$imp$F13R
+imp$imp$F14S
+imp$imp$F16R
+imp$imp$F17R
+imp$imp$F18R
+SPECTF_train_IMP <- complete(imp,1)
+```
+
+```{r}
+sum(is.na(SPECTF_train_IMP))
+```
+## ESTUDIAMOS EL DATASET YA LIMPIO. *LUIS
+```{r ,results='hide',message=FALSE, warning=FALSE}
+skim(SPECTF_train_IMP)
+```
+
+# TRANSFORMACIÓN DE DATOS 
+
+## CONVERTIMOS LA VARIABLE CATEGORICA EN OUTCOME 
+## *LUIS
+```{r,message=FALSE, warning=FALSE}
+SPECTF_train_IMP <-
+  mutate(SPECTF_train_IMP , outcome = (as.factor(
+    SPECTF_train_IMP$OVERALL_DIAGNOSIS)))
+SPECTF_train_IMP <-  SPECTF_train_IMP[,-1]
+c.entrenamiento <-  SPECTF_train_IMP
+```
+
+## CONVERTIMOS EL OUTCOME EN NORMAL Y ANORMAL *KLEYDERM
+```{r,message=FALSE, warning=FALSE}
+SPECTF_train_IMP$outcome<- as.character.factor(SPECTF_train_IMP$outcome)
+SPECTF_train_IMP$outcome <- 
+  replace(SPECTF_train_IMP$outcome, 
+          SPECTF_train_IMP$outcome == "1" , "ANORMAL")
+SPECTF_train_IMP$outcome <- 
+  replace(SPECTF_train_IMP$outcome, 
+          SPECTF_train_IMP$outcome == "0" , "NORMAL")
+SPECTF_train_IMP$outcome[30:50]
+```
+
+# VISUALIZACIÓN DE LOS DATOS
+
+## PACIENTES CON TOMOGRAFIAS NORMALES Y ANORMALES *LUIS
+```{r,message=FALSE, warning=FALSE}
+pacientes <- SPECTF_train_IMP %>%
+group_by(outcome) %>%
+summarise(count = n()) %>%
+mutate(perc = count/sum(count))
+brks <- c(0, 0.2, 0.4, 0.6, 0.8, 1)
+ggplot(pacientes, aes(x = outcome, y = perc, fill = factor(outcome))) +
+geom_bar(stat="identity", width = 0.7) +
+scale_y_continuous(breaks = brks, labels = scales::percent(brks)) +
+labs(x = "Diagnóstico", y = "Porcentaje", fill = "Diagnóstico") +
+theme_minimal(base_size = 14)
+```
+
+## CORRELACIÓN DE VARIABLES *KLEYDERM
+```{r, fig.height=4, fig.width=4,message=FALSE, warning=FALSE}
+chart.Correlation(SPECTF_train_IMP[, c(3:11)],histogram = TRUE, col="grey10", pch=1, main="Cancer Mean")
+```
+
+## CREAMOS MODELO DE REGRESIÓN #1 *LUIS 
+```{r,message=FALSE, warning=FALSE}
+model1 <- glm(outcome ~.,family = binomial, data=
+                c.entrenamiento )
+```
+
+## VALORES ESTADISTICOS DEL MODEL1 *KLEYDERM
+```{r,message=FALSE,warning=FALSE}
+summary(model1)
+```
+
+## INGRESAMOS DATA SET DE VALIDACIÓN *LUIS
+```{r,message=FALSE,warning=FALSE}
+c.validacion <- SPECTF_test[,-1]
+```
+
+## REALIZAMOS PRUEBAS AL MODEL1 #KLEYDERM
+```{r,message=FALSE,warning=FALSE}
+pred1 <- predict(model1, newdata = c.validacion , type = "response")
+pred1
+```
+
+## REALIZAMOS EL PUNTO DE CORTE Y CONVERTIMOS LA PREDICCIÓN A FACTOR
+## *LUIS
+```{r,message=FALSE,warning=FALSE}
+predic1<- ifelse(pred1 > 0.5, "NORMAL", "ANORMAL")
+predic1
+```
+
+## CAMBIAMOS EL OVERALL DEL DATA SET TEST POR OUTCOME Y LO CONVERTIMOS A FACTOR DE CARACTER. *KLEYDERM
+```{r,message=FALSE,warning=FALSE}
+SPECTF_test <-
+  mutate(SPECTF_test , outcome = (as.factor(
+    SPECTF_test$OVERALL_DIAGNOSIS)))
+SPECTF_test <-  SPECTF_test[,-1]
+SPECTF_test$outcome<- as.character.factor(SPECTF_test$outcome)
+SPECTF_test$outcome <- 
+  replace(SPECTF_test$outcome, 
+          SPECTF_test$outcome == "1" , "ANORMAL")
+SPECTF_test$outcome <- 
+  replace(SPECTF_test$outcome, 
+          SPECTF_test$outcome == "0" , "NORMAL")
+SPECTF_test$outcome[170:186]
+```
+
+## IGUALAMOS AMBOS OUTCOMES, ANTES Y DESPUÉS DE LA PREDICCIÓN *LUIS
+
+```{r,message=FALSE,warning=FALSE}
+real <- factor(SPECTF_test$outcome)
+prediction1 <- data.frame(predic1,real)
+prediction1[1:10,]
+```
+
+## EVALUAMOS LA CANTIDAD DE ACIERTOS QUE TUVO LA PREDICTION1 *KLEYDERM
+```{r,message=FALSE,warning=FALSE}
+mean(predic1 == real)
+```
+NUESTRO PRIMER MODELO OBTIENE UN PORCENTAJE DE ACERTACIÓN DEL 32%
+
+
+## CREAMOS UN NUEVA REGRESIÓN (MODEL2) CON LAS VARIBALES MÁS RELEVANTES *LUIS
+
+```{r,message=FALSE,warning=FALSE}
+model2 <- glm(outcome ~ F2R +  F4S #40%
+              + F20R,
+              family = binomial,data=c.entrenamiento )
+```
+
+## VALORES ESTADISTICOS DEL MODEL2 *KLEYDERM
+```{r,message=FALSE,warning=FALSE}
+summary(model2)
+```
+
+## REALIZAMOS PRUEBAS AL MODEL2 *LUIS
+```{r,message=FALSE,warning=FALSE}
+pred2 <- predict(model2, newdata = c.validacion , type = "response")
+pred2
+```
+
+## REALIZAMOS EL PUNTO DE CORTE Y CONVERTIMOS LA PREDICCIÓN A FACTOR
+## *KLEYDERM
+```{r,message=FALSE,warning=FALSE}
+predic2<- ifelse(pred2 > 0.5, "NORMAL", "ANORMAL")
+predic2
+```
+
+## IGUALAMOS AMBOS OUTCOMES, ANTES Y DESPUÉS DE LA PREDICCIÓN2
+# *LUIS
+```{r,message=FALSE,warning=FALSE}
+prediction2 <- data.frame(predic2,real)
+prediction2[1:10,]
+```
+## EVALUAMOS LA CANTIDAD DE ACIERTOS QUE TUVO LA PREDICTION2 *KLEYDERM
+```{r,message=FALSE,warning=FALSE}
+mean(predic2 == real)
+```
+NUESTRO SEGUNDO MODELO OBTIENE UN PORCENTAJE DE ACERTACIÓN DEL 40,15%
+
+#CONCLUSIONES 
+
+## DIAGRAMA DE BARRAS DE DIAGNOSTICO GRUPO DE TEST *LUIS
+```{r,message=FALSE,warning=FALSE}
+pacientes <- SPECTF_test %>%
+group_by(outcome) %>%
+summarise(count = n()) %>%
+mutate(perc = count/sum(count))
+brks <- c(0, 0.2, 0.4, 0.6, 0.8, 1)
+ggplot(pacientes, aes(x = outcome, y = perc, fill = factor(outcome))) +
+geom_bar(stat="identity", width = 0.7) +
+scale_y_continuous(breaks = brks, labels = scales::percent(brks)) +
+labs(x = "Diagnóstico", y = "Porcentaje", fill = "Diagnóstico") +
+theme_minimal(base_size = 14)
+```
+
+## DIAGRAMA DE BARRAS DE DIAGNOSTICO MODELO DE REGRESIÓN CON ACERTACIÓN MÁS ALTO. *KLEYDERM
+```{r,message=FALSE,warning=FALSE}
+pacientes <- prediction2 %>%
+group_by(predic2) %>%
+summarise(count = n()) %>%
+mutate(perc = count/sum(count))
+brks <- c(0, 0.2, 0.4, 0.6, 0.8, 1)
+ggplot(pacientes, aes(x = predic2, y = perc, fill = factor(predic2))) +
+geom_bar(stat="identity", width = 0.7) +
+scale_y_continuous(breaks = brks, labels = scales::percent(brks)) +
+labs(x = "Diagnóstico", y = "Porcentaje", fill = "Diagnóstico") +
+theme_minimal(base_size = 14)
+```
+
+## PREGUNTA DE INVESTIGACIÓN *LUIS
+
+¿Se puede realizar una integración entre visión artificial y Machine learning para lograr establecer si un paciente tiene o no una anomalía cardiaca solo con hacer una tomografía en reposo y en estrés, luego pasarla por un procesamiento de Rois y que el programa de Machine Learning estudie estos 44 resultados y de un diagnóstico?
+
+## DATOS OBTENIDOS EN EL PROCESO 
+
+### DATOS OBTENIDOS PARA MODELO #1 *KLEYDERM
+```{r, message=FALSE, warning=FALSE}
+predic1 <- factor(predic1)
+real <- factor(real)
+confusionMatrix(predic1,real, positive = "NORMAL")
+```
+
+### DATOS OBTENIDOS PARA MODELO #2 *LUIS
+```{r, message=FALSE, warning=FALSE}
+predic2 <- factor(predic2)
+real <- factor(real)
+confusionMatrix(predic2,real, positive = "NORMAL")
+```
+
+## ¿SON SUS HALAZGOS LO QUE ESPERABA? ¿POR QUÉ O POR QUÉ NO? *KLEYDERM 
+
+Los hallazgos no fueron los esperados, debido a que el porcentaje de acierto de nuestro modelo no superó el 50%. 
+
+Al ser mcuhas variables, estás se relacionan entre ellas de manera muy aleatoria, y al momento de decidirnos por cual mantener en la regresión se complica, lo que nos permite determinar que a partir de un modelo predictivo que reciba resultados de una camara de visión artificial NO se puede determinar si la tomografia de un paciente es anormal o no sin necesidad de la presencia de un especialista.
+
+Las variables muy pocas veces dependeran de alguna otra, pues recordemos que cada variable contiene el porcentaje de igualación de una imagen en condiciones sanas con la imagen tomada al paciente en cierta zona del cuerpo, es por ello que entre variables es dificil que haya relación pues el resultado de un ROI es totalmente diferente al de otro organo.
+
+## CORRELACIÓN DE LAS 44 VARIABLES. *LUIS
+```{r, message=FALSE, warming=FALSE}
+corrplot(cor(c.validacion), type="upper")
+```
